@@ -2,7 +2,18 @@
 import google.generativeai as genai
 import os
 import json
+from pathlib import Path
+from dotenv import load_dotenv
 import re
+
+# Load environment variables from the .env file
+# Get the path of the current file's directory
+current_dir = Path(__file__).parent
+# Look for .env in the same directory as this script
+dotenv_path = current_dir / ".env"
+
+# Load with an explicit path
+load_dotenv(dotenv_path=dotenv_path)
 
 class LLMClient:
     """
@@ -10,8 +21,12 @@ class LLMClient:
     Converts natural-language prompts into structured JSON commands.
     """
 
-    def __init__(self, api_key="AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8", model="gemini-2.5-pro"):
-        self.api_key = api_key or os.getenv("AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8")
+    # def __init__(self, api_key="AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8", model="gemini-2.5-pro"):
+    #     self.api_key = api_key or os.getenv("AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8")
+    # def __init__(self, model="gemini-2.5-pro"):
+    def __init__(self, model="gemini-2.0-flash"):
+        # Retrieve the key from the environment
+        self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key is None:
             print("[LLMClient] ERROR: Missing GEMINI_API_KEY!")
         genai.configure(api_key=self.api_key)
@@ -20,16 +35,38 @@ class LLMClient:
 
         # System guidelines
         self.system_prompt = """
-        You are an Isaac Sim Robotics Assistant.
-        Convert natural-language commands into JSON like:
-        {
-            "action": "spawn",
-            "object": "cube",
-            "color": "red",
-            "position": [0,0,1]
-        }
-        Only output JSON. No extra text.
-        """
+            You control Isaac Sim.
+
+            Convert user commands into JSON arrays of actions.
+
+            Valid actions:
+            - load_scene { scene }
+            - spawn_robot { robot, position }
+            - spawn_object { object, position }
+
+            Position rules:
+            - position must be a list of 3 numbers: [x, y, z]
+            - Only include "position" if the user explicitly specifies coordinates
+            - If no position is mentioned, omit the field entirely
+
+            Examples:
+
+            User: Spawn a robot at position (1, 0, 0)
+            [
+            {"action": "spawn_robot", "robot": "unitree", "position": [1, 0, 0]}
+            ]
+
+            User: Spawn a robot in a kitchen
+            [
+            {"action": "load_scene", "scene": "kitchen"},
+            {"action": "spawn_robot", "robot": "unitree"}
+            ]
+
+            Only output JSON. No explanations.
+
+            """
+
+
 
     # ------------------------------------------------------------------
 
@@ -83,15 +120,22 @@ class LLMClient:
             # Remove ```json or ``` fences
             text = re.sub(r"```.*?```", lambda m: m.group(0).strip("`"), text, flags=re.S)
 
-            # Extract JSON substring
-            match = re.search(r"\{[\s\S]*\}", text)
-            if match:
-                json_str = match.group(0)
+            # Try to extract a JSON array first
+            array_match = re.search(r"\[[\s\S]*\]", text)
+            if array_match:
+                json_str = array_match.group(0)
                 return json.loads(json_str)
 
-            raise ValueError("No JSON object found")
+            # Fall back to extracting a single JSON object
+            obj_match = re.search(r"\{[\s\S]*\}", text)
+            if obj_match:
+                json_str = obj_match.group(0)
+                return json.loads(json_str)
+
+            raise ValueError("No JSON found (neither object nor array)")
 
         except Exception as e:
             print("[LLM ERROR]", e)
             print("[RAW LLM OUTPUT]", text)
-            return {"action": "error", "message": "LLM response was invalid JSON"}
+            # Return a consistent error dict using 'error' key
+            return {"error": str(e)}

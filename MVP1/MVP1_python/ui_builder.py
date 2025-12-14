@@ -103,36 +103,36 @@ class UIBuilder:
         Build a custom UI tool to run your extension.
         This function will be called any time the UI window is closed and reopened.
         """
-        world_controls_frame = CollapsableFrame("World Controls", collapsed=False)
+        # world_controls_frame = CollapsableFrame("World Controls", collapsed=False)
 
-        with world_controls_frame:
-            with ui.VStack(style=get_style(), spacing=5, height=0):
-                self._load_btn = LoadButton(
-                    "Load Button", "LOAD", setup_scene_fn=self._setup_scene, setup_post_load_fn=self._setup_scenario
-                )
-                self._load_btn.set_world_settings(physics_dt=1 / 60.0, rendering_dt=1 / 60.0)
-                self.wrapped_ui_elements.append(self._load_btn)
+        # with world_controls_frame:
+        #     with ui.VStack(style=get_style(), spacing=5, height=0):
+        #         self._load_btn = LoadButton(
+        #             "Load Button", "LOAD", setup_scene_fn=self._setup_scene, setup_post_load_fn=self._setup_scenario
+        #         )
+        #         self._load_btn.set_world_settings(physics_dt=1 / 60.0, rendering_dt=1 / 60.0)
+        #         self.wrapped_ui_elements.append(self._load_btn)
 
-                self._reset_btn = ResetButton(
-                    "Reset Button", "RESET", pre_reset_fn=None, post_reset_fn=self._on_post_reset_btn
-                )
-                self._reset_btn.enabled = False
-                self.wrapped_ui_elements.append(self._reset_btn)
+        #         self._reset_btn = ResetButton(
+        #             "Reset Button", "RESET", pre_reset_fn=None, post_reset_fn=self._on_post_reset_btn
+        #         )
+        #         self._reset_btn.enabled = False
+        #         self.wrapped_ui_elements.append(self._reset_btn)
 
-        run_scenario_frame = CollapsableFrame("Run Scenario")
+        # run_scenario_frame = CollapsableFrame("Run Scenario")
 
-        with run_scenario_frame:
-            with ui.VStack(style=get_style(), spacing=5, height=0):
-                self._scenario_state_btn = StateButton(
-                    "Run Scenario",
-                    "RUN",
-                    "STOP",
-                    on_a_click_fn=self._on_run_scenario_a_text,
-                    on_b_click_fn=self._on_run_scenario_b_text,
-                    physics_callback_fn=self._update_scenario,
-                )
-                self._scenario_state_btn.enabled = False
-                self.wrapped_ui_elements.append(self._scenario_state_btn)
+        # with run_scenario_frame:
+        #     with ui.VStack(style=get_style(), spacing=5, height=0):
+        #         self._scenario_state_btn = StateButton(
+        #             "Run Scenario",
+        #             "RUN",
+        #             "STOP",
+        #             on_a_click_fn=self._on_run_scenario_a_text,
+        #             on_b_click_fn=self._on_run_scenario_b_text,
+        #             physics_callback_fn=self._update_scenario,
+        #         )
+        #         self._scenario_state_btn.enabled = False
+        #         self.wrapped_ui_elements.append(self._scenario_state_btn)
 
         self._build_chat_ui()
 
@@ -252,10 +252,35 @@ class UIBuilder:
         self._scenario_state_btn.enabled = False
         self._reset_btn.enabled = False
 
+    def _on_reset_clicked(self):
+        response = self._chat_controller.spawner.reset_environment()
+        with self._chat_display_container:
+            ui.Label(f"System: {response}")
+
     def _build_chat_ui(self):
         """Builds chatbot UI."""
         with ui.CollapsableFrame("Chatbot Spawner", collapsed=False):
             with ui.VStack(spacing=8, height=0):
+
+                        # Header row
+                with ui.HStack(height=30):
+                    # ui.Label("Chatbot Spawner", style={"font_size": 18})
+                    ui.Spacer()
+                    ui.Button(
+                        "RESET",
+                        width=80,
+                        clicked_fn=self._on_reset_clicked,
+                        # style={"background_color": 0xFF4444FF},
+                        # style={
+                        #     "background_color": 0xFF4444FF,
+                        #     "background_color:hovered": 0xFF6666FF,
+                        #     "background_color:pressed": 0xFF2222FF,
+                        #     "border_radius": 6,
+                        #     "padding": 6,
+                        # },
+                        
+                    )
+
 
                 # Scrollable chat history
                 with ui.ScrollingFrame(height=220, style=get_style()):
@@ -265,7 +290,8 @@ class UIBuilder:
                 # Input row
                 with ui.HStack():
                     self._chat_input_field = ui.StringField(
-                        placeholder="e.g., spawn a red cube at (0,0,1)"
+                        # placeholder="e.g., spawn a red cube at (0,0,1)"
+                        placeholder="e.g. spawn a unitree robot at (0,0,1)"
                     )
                     ui.Button("Send", clicked_fn=self._on_chat_submit, width=80)
 

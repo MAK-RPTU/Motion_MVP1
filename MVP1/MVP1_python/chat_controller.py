@@ -1,45 +1,3 @@
-# chat_controller.py
-
-# from .spawner import Spawner
-
-# class ChatController:
-#     """
-#     Handles chat messages and translates them into spawning commands.
-#     Modular and replaceable with NLP/LLM later.
-#     """
-
-#     def __init__(self):
-#         self.spawner = Spawner()
-
-#     def handle_prompt(self, text: str) -> str:
-#         """Main router for chat commands."""
-
-#         lower = text.lower()
-
-#         # Simple rule-based "NLP"
-#         if "spawn" in lower:
-#             return self._handle_spawn(text)
-
-#         return "I don't understand that yet. Try: 'spawn a cube at (0,0,1)'"
-
-#     # ---------------------------------------------------
-
-#     def _handle_spawn(self, text: str):
-#         """Parse natural-language-like spawn commands."""
-
-#         # Detect object type
-#         if "cube" in text:
-#             return self.spawner.spawn_cube(text)
-
-#         if "sphere" in text:
-#             return self.spawner.spawn_sphere(text)
-
-#         if "robot" in text or "franka" in text:
-#             return self.spawner.spawn_franka(text)
-
-#         return "Spawn what? Try 'spawn cube at (0,0,1)'"
-
-
 from .spawner import Spawner
 from .llm_client import LLMClient
 
@@ -49,34 +7,60 @@ class ChatController:
         self.spawner = Spawner()
         self.llm = LLMClient()  # NEW
 
-    def handle_prompt(self, text: str) -> str:
-        """
-        Send prompt to LLM → returns structured JSON → spawner executes it.
-        """
+    def _safe_position(self, pos):
+        if isinstance(pos, (list, tuple)) and len(pos) == 3:
+            try:
+                return [float(pos[0]), float(pos[1]), float(pos[2])]
+            except Exception:
+                pass
+        return [0.0, 0.0, 0.0]
 
-        print("[ChatController] Sending to LLM:", text)
+
+    def handle_prompt(self, text: str) -> str:
+        text_lower = text.lower().strip()
+
+        if text_lower in ["reset", "clear", "clean environment"]:
+            return self.spawner.reset_environment()
+
         result = self.llm.interpret(text)
 
-        if "error" in result:
-            return f"LLM Error: {result['error']}"
+        if not isinstance(result, (dict, list)):
+            return f"LLM Error: Unexpected response format: {result}"
 
-        # Example JSON result:
-        # { "action": "spawn", "object": "cube", "position": [0,0,1] }
+        # Normalize to a list of dicts
+        if isinstance(result, dict):
+            commands = [result]
+        else:
+            commands = [c for c in result if isinstance(c, dict)]
 
-        action = result.get("action")
-        obj = result.get("object")
-        pos = result.get("position", [0,0,0])
+        if not commands:
+            return "LLM did not return a valid command."
 
-        if action == "spawn":
-            if obj == "cube":
-                return self.spawner.spawn_cube_at(pos)
+        # cmd = commands[0]  # Only execute one command (by design)
 
-            if obj == "sphere":
-                return self.spawner.spawn_sphere_at(pos)
+        responses = []
 
-            if obj in ["franka", "robot"]:
-                return self.spawner.spawn_franka_at(pos)
+        for cmd in commands:
+            action = cmd.get("action")
 
-            return f"Unknown object: {obj}"
+            if action == "load_scene":
+                responses.append(self.spawner.spawn_scene(cmd["scene"]))
 
-        return f"Unknown action: {action}"
+            elif action == "spawn_robot":
+                # pos = self._safe_position(cmd.get("position"))
+                # responses.append(self.spawner.spawn_unitree_at(pos))
+                pos = cmd.get("position")          # may be None
+                responses.append(
+                    self.spawner.spawn_unitree_at(pos)
+                )
+
+
+
+
+            elif action == "spawn_object":
+                pos = self._safe_position(cmd.get("position"))
+                responses.append(self.spawner.spawn_cube_at(pos))
+
+
+        return "\n".join(responses)
+
