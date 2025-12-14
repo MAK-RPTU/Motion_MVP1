@@ -1,5 +1,7 @@
 from .spawner import Spawner
 from .llm_client import LLMClient
+from omni.isaac.core.utils.stage import is_stage_loading
+import time
 
 class ChatController:
 
@@ -46,6 +48,10 @@ class ChatController:
             if action == "load_scene":
                 responses.append(self.spawner.spawn_scene(cmd["scene"]))
 
+                # Wait for stage to fully load before spawning robot
+                while is_stage_loading():
+                    time.sleep(0.1)
+
             elif action == "spawn_robot":
                 # pos = self._safe_position(cmd.get("position"))
                 # responses.append(self.spawner.spawn_unitree_at(pos))
@@ -53,9 +59,6 @@ class ChatController:
                 responses.append(
                     self.spawner.spawn_unitree_at(pos)
                 )
-
-
-
 
             elif action == "spawn_object":
                 pos = self._safe_position(cmd.get("position"))

@@ -62,13 +62,7 @@ class UIBuilder:
         Args:
             event (omni.timeline.TimelineEventType): Event Type
         """
-        if event.type == int(omni.timeline.TimelineEventType.STOP):
-            # When the user hits the stop button through the UI, they will inevitably discover edge cases where things break
-            # For complete robustness, the user should resolve those edge cases here
-            # In general, for extensions based off this template, there is no value to having the user click the play/stop
-            # button instead of using the Load/Reset/Run buttons provided.
-            self._scenario_state_btn.reset()
-            self._scenario_state_btn.enabled = False
+        pass
 
     def on_physics_step(self, step: float):
         """Callback for Physics Step.
@@ -144,7 +138,6 @@ class UIBuilder:
     def _on_init(self):
         self._articulation = None
         self._cuboid = None
-        self._scenario = FrankaRmpFlowExampleScript()
 
     def _add_light_to_stage(self):
         """
@@ -161,15 +154,16 @@ class UIBuilder:
         On pressing the Load Button, a new instance of World() is created and then this function is called.
         The user should now load their assets onto the stage and add them to the World Scene.
         """
-        create_new_stage()
-        self._add_light_to_stage()
+        # create_new_stage()
+        # self._add_light_to_stage()
 
-        loaded_objects = self._scenario.load_example_assets()
+        # loaded_objects = self._scenario.load_example_assets()
 
-        # Add user-loaded objects to the World
-        world = World.instance()
-        for loaded_object in loaded_objects:
-            world.scene.add(loaded_object)
+        # # Add user-loaded objects to the World
+        # world = World.instance()
+        # for loaded_object in loaded_objects:
+        #     world.scene.add(loaded_object)
+        pass
 
     def _setup_scenario(self):
         """
@@ -177,12 +171,13 @@ class UIBuilder:
         The user may assume that their assets have been loaded by their setup_scene_fn callback, that
         their objects are properly initialized, and that the timeline is paused on timestep 0.
         """
-        self._scenario.setup()
+        # self._scenario.setup()
 
-        # UI management
-        self._scenario_state_btn.reset()
-        self._scenario_state_btn.enabled = True
-        self._reset_btn.enabled = True
+        # # UI management
+        # self._scenario_state_btn.reset()
+        # self._scenario_state_btn.enabled = True
+        # self._reset_btn.enabled = True
+        pass
 
     def _on_post_reset_btn(self):
         """
@@ -192,11 +187,12 @@ class UIBuilder:
         They may also assume that objects that were added to the World.Scene have been moved to their default positions.
         I.e. the cube prim will move back to the position it was in when it was created in self._setup_scene().
         """
-        self._scenario.reset()
+        # self._scenario.reset()
 
-        # UI management
-        self._scenario_state_btn.reset()
-        self._scenario_state_btn.enabled = True
+        # # UI management
+        # self._scenario_state_btn.reset()
+        # self._scenario_state_btn.enabled = True
+        pass
 
     def _update_scenario(self, step: float):
         """This function is attached to the Run Scenario StateButton.
@@ -209,9 +205,10 @@ class UIBuilder:
         Args:
             step (float): The dt of the current physics step
         """
-        done = self._scenario.update(step)
-        if done:
-            self._scenario_state_btn.enabled = False
+        # done = self._scenario.update(step)
+        # if done:
+        #     self._scenario_state_btn.enabled = False
+        pass
 
     def _on_run_scenario_a_text(self):
         """
@@ -223,7 +220,8 @@ class UIBuilder:
         the timeline is paused, which means that no physics steps will occur until the user makes it play either programmatically or
         through the left-hand UI toolbar.
         """
-        self._timeline.play()
+        # self._timeline.play()
+        pass
 
     def _on_run_scenario_b_text(self):
         """
@@ -238,7 +236,8 @@ class UIBuilder:
         forward by momentum for a few frames after the physics subscription is canceled.  Pausing here makes
         this example prettier, but if curious, the user should observe what happens when this line is removed.
         """
-        self._timeline.pause()
+        # self._timeline.pause()
+        pass
 
     def _reset_extension(self):
         """This is called when the user opens a new stage from self.on_stage_event().
@@ -248,9 +247,10 @@ class UIBuilder:
         self._reset_ui()
 
     def _reset_ui(self):
-        self._scenario_state_btn.reset()
-        self._scenario_state_btn.enabled = False
-        self._reset_btn.enabled = False
+        # self._scenario_state_btn.reset()
+        # self._scenario_state_btn.enabled = False
+        # self._reset_btn.enabled = False
+        pass
 
     def _on_reset_clicked(self):
         response = self._chat_controller.spawner.reset_environment()

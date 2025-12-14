@@ -7,6 +7,10 @@ from isaacsim.core.utils.stage import add_reference_to_stage, get_current_stage
 from isaacsim.storage.native import get_assets_root_path
 from pxr import UsdGeom, UsdLux
 import re
+from omni.isaac.sensor import Camera
+from omni.isaac.core.utils.rotations import euler_angles_to_quat
+import time
+from omni.isaac.core.utils.prims import is_prim_path_valid
 
 class Spawner:
     ASSETS_ROOT = get_assets_root_path()
@@ -55,7 +59,8 @@ class Spawner:
                 size=50.0,
                 color=np.array([0.5, 0.5, 0.5]),
             )
-            world.scene.add(ground)
+            if not world.scene.get_object("ground_plane"):
+                world.scene.add(ground)
 
         # --------------------------------------------------
         # Light
@@ -139,6 +144,28 @@ class Spawner:
         return f"Sphere spawned at {pos}"
 
     # --------------------------------------------------
+    # ROBOT HEAD CAMERA
+    # --------------------------------------------------
+    def attach_head_camera(self, robot_prim_path):
+        camera_prim = f"{robot_prim_path}/d435_rgb_module_link/head_camera"
+
+        # quat = euler_angles_to_quat(np.array([-135.75, 0.0, 0.0]))
+        quat = np.array([0.0, 0.34551, -0.93842, 0.0])
+
+        cam = Camera(
+            prim_path=camera_prim,
+            position=np.array([-1.1856060611048491e-7, -0.025623839365668144, 0.020901433922990265]),
+            orientation=quat,
+            resolution=(640, 480),
+            frequency=30,
+        )
+
+        cam.initialize()
+        self._head_camera = cam   # IMPORTANT
+
+        return camera_prim
+    
+    # --------------------------------------------------
     # ROBOT (ONLY articulation in system)
     # --------------------------------------------------
     def spawn_unitree_at(self, pos=None):
@@ -155,6 +182,16 @@ class Spawner:
 
         add_reference_to_stage(self.ASSET_LIBRARY["unitree"], prim_path)
 
+        # Wait until the robot prim is valid
+        timeout = 3.0  # seconds
+        elapsed = 0.0
+        while not is_prim_path_valid(prim_path):
+            time.sleep(0.1)
+            elapsed += 0.1
+            if elapsed >= timeout:
+                raise RuntimeError(f"Timeout: Robot asset at {prim_path} not loaded in time.")
+
+
         robot = SingleArticulation(prim_path)
 
         robot.set_world_pose(
@@ -162,10 +199,15 @@ class Spawner:
             orientation=[0, 0, 0, 1]
         )
 
-        world.scene.add(robot, name=scene_name)
+        # world.scene.add(robot, name=scene_name)
+        world.scene.add(robot)
         self._spawned_prims.add(prim_path)
 
-        return f"Unitree robot spawned at {pos}"
+        # Attach camera
+        cam_prim = self.attach_head_camera(prim_path)
+
+        self._spawned_prims.add(prim_path)
+        return f"Unitree spawned with head camera ({cam_prim})"
 
     # --------------------------------------------------
     # SCENES (NO articulation, NO physics add)
