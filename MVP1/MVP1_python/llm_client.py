@@ -61,7 +61,17 @@ class LLMClient:
             {"action": "load_scene", "scene": "kitchen"},
             {"action": "spawn_robot", "robot": "unitree"}
             ]
+            User: Spawn a robot in a office
+            [
+            {"action": "load_scene", "scene": "office"},
+            {"action": "spawn_robot", "robot": "unitree"}
+            ]
 
+            User: Spawn a robot in a room
+            [
+            {"action": "load_scene", "scene": "room"},
+            {"action": "spawn_robot", "robot": "unitree"}
+            ]
             Only output JSON. No explanations.
 
             """

@@ -17,8 +17,7 @@ class Spawner:
     ASSETS_ROOT = get_assets_root_path()
 
     ASSET_LIBRARY = {
-        "kitchen": f"{ASSETS_ROOT}/Isaac/IsaacLab/Arena/assets/background_library/"
-                "kitchen_scene_teleop_v3/kitchen_scene_teleop_closed_drawer.usd",
+        "kitchen": f"{ASSETS_ROOT}/Isaac/IsaacLab/Arena/assets/background_library/kitchen_scene_teleop_v3/kitchen_scene_teleop_closed_drawer.usd",
 
         "office": f"{ASSETS_ROOT}/Isaac/Environments/Office/office.usd",
         "room": f"{ASSETS_ROOT}/Isaac/Environments/Simple_Room/simple_room.usd",
@@ -83,13 +82,40 @@ class Spawner:
     # --------------------------------------------------
     def reset_environment(self):
         stage = get_current_stage()
+        world = self._world()
 
-        root = stage.GetPrimAtPath("/World/Chat")
-        if root:
-            stage.RemovePrim("/World/Chat")
+        # 1) Remove user content first (USD)
+        chat_path = "/World/Chat"
+        if stage and stage.GetPrimAtPath(chat_path):
+            stage.RemovePrim(chat_path)
+
+        # 2) Clear the scene registry safely
+        try:
+            world.scene.clear()
+        except Exception as e:
+            print("[Spawner][reset] world.scene.clear() failed:", e)
+
+            # Fallback: remove only what we spawned (best effort)
+            for p in list(self._spawned_prims):
+                try:
+                    if p and stage and stage.GetPrimAtPath(p):
+                        stage.RemovePrim(p)
+                except Exception as ee:
+                    print("[Spawner][reset] fallback remove failed:", p, ee)
+
+            # Try clearing again after USD removals
+            try:
+                world.scene.clear()
+            except Exception as ee:
+                print("[Spawner][reset] second clear failed (ignored):", ee)
+
+        # 3) Recreate Chat root so next spawn works cleanly
+        if stage and not stage.GetPrimAtPath("/World/Chat"):
+            UsdGeom.Xform.Define(stage, "/World/Chat")
 
         self._spawned_prims.clear()
         return "Environment reset."
+
 
     
     def _next_index(self, prefix: str) -> int:
@@ -154,6 +180,10 @@ class Spawner:
         orientation = rot_utils.euler_angles_to_quat(
             np.array([90, 90, 0]), degrees=True  # Adjust based on desired facing
         )
+
+        # pos = (2.2822972338678706, -0.5025799814929452, 1.5654207644517726)
+        # orinetation euler 90, 90 0
+        # orientation quat 0.5, 0.5, 0.5, 0.5
 
         # Set a reasonable position relative to the link
         position = np.array([2.2822972338678706, -0.5025799814929452, 1.5654207644517726])  # Relative offset (update as needed)

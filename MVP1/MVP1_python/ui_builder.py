@@ -269,16 +269,7 @@ class UIBuilder:
                     ui.Button(
                         "RESET",
                         width=80,
-                        clicked_fn=self._on_reset_clicked,
-                        # style={"background_color": 0xFF4444FF},
-                        # style={
-                        #     "background_color": 0xFF4444FF,
-                        #     "background_color:hovered": 0xFF6666FF,
-                        #     "background_color:pressed": 0xFF2222FF,
-                        #     "border_radius": 6,
-                        #     "padding": 6,
-                        # },
-                        
+                        clicked_fn=self._on_reset_clicked,                        
                     )
 
 

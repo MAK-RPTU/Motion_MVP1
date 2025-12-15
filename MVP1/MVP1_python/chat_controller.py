@@ -7,7 +7,7 @@ class ChatController:
 
     def __init__(self):
         self.spawner = Spawner()
-        self.llm = LLMClient()  # NEW
+        self.llm = LLMClient()
 
     def _safe_position(self, pos):
         if isinstance(pos, (list, tuple)) and len(pos) == 3:
