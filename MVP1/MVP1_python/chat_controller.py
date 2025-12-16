@@ -60,9 +60,16 @@ class ChatController:
                     self.spawner.spawn_unitree_at(pos)
                 )
 
+            # elif action == "spawn_object":
+            #     pos = self._safe_position(cmd.get("position"))
+            #     responses.append(self.spawner.spawn_cube_at(pos))
+
             elif action == "spawn_object":
-                pos = self._safe_position(cmd.get("position"))
-                responses.append(self.spawner.spawn_cube_at(pos))
+                obj = cmd.get("object")
+                pos = cmd.get("position")  # may be None
+                location = cmd.get("location")  # may be None
+                responses.append(self.spawner.spawn_asset_at(obj, pos, location))
+
 
 
         return "\n".join(responses)

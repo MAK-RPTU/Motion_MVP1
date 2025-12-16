@@ -12,6 +12,10 @@ from omni.isaac.core.utils.rotations import euler_angles_to_quat
 import time
 from omni.isaac.core.utils.prims import is_prim_path_valid
 from omni.isaac.core.utils import rotations as rot_utils
+import omni.kit.app
+import asyncio
+import random
+
 
 class Spawner:
     ASSETS_ROOT = get_assets_root_path()
@@ -26,11 +30,39 @@ class Spawner:
         "packing table": f"{ASSETS_ROOT}/Isaac/Props/PackingTable/packing_table.usd",
 
         "unitree": f"{ASSETS_ROOT}/Isaac/Robots/Unitree/H1/payloads/base.usda",
+
+        "yellow mug": f"{ASSETS_ROOT}/Isaac/Props/Mugs/SM_Mug_C1.usd",
+
+        "black mug": f"{ASSETS_ROOT}/Isaac/Props/Mugs/SM_Mug_B1.usd",
     }
 
 
     def __init__(self):
         self._spawned_prims = set()
+
+        self.SEMANTIC_LOCATIONS = {
+            "sink": {
+                "x_min": 1.787636306238167,
+                "x_max": 2.277535611777558,
+                "y_min": 0.017787016541670947,
+                "y_max": 0.37693285459455794,
+                "z": 0.7841508388519287,
+            }
+        }
+
+
+        self.DEFAULT_ASSET_POSITION = [1.756650568756057, 0.0, 1.0909934857926475]
+
+
+        DEFAULT_ASSET_AREA = {
+            "x_min": 2.5758770259863537,
+            "x_max": 3.0930301090347485,
+            "y_min": 0.17586957972383563,
+            "y_max": 0.4928272805675453,
+            "z": 1.0909935235977168,
+        }
+        self.DEFAULT_ASSET_AREA = DEFAULT_ASSET_AREA
+
 
     def _world(self):
         world = World.instance()
@@ -81,40 +113,37 @@ class Spawner:
     # RESET (FIXED)
     # --------------------------------------------------
     def reset_environment(self):
+        asyncio.ensure_future(self._reset_environment_async())
+        return "Environment reset scheduled."
+
+    async def _reset_environment_async(self):
+        app = omni.kit.app.get_app()
         stage = get_current_stage()
         world = self._world()
 
-        # 1) Remove user content first (USD)
-        chat_path = "/World/Chat"
-        if stage and stage.GetPrimAtPath(chat_path):
-            stage.RemovePrim(chat_path)
+        # Let current frame finish
+        await app.next_update_async()
 
-        # 2) Clear the scene registry safely
+        # Remove Chat content
+        if stage and stage.GetPrimAtPath("/World/Chat"):
+            stage.RemovePrim("/World/Chat")
+
+        await app.next_update_async()
+
+        # Clear physics / scene registry safely
         try:
             world.scene.clear()
         except Exception as e:
-            print("[Spawner][reset] world.scene.clear() failed:", e)
+            print("[reset] scene.clear warning:", e)
 
-            # Fallback: remove only what we spawned (best effort)
-            for p in list(self._spawned_prims):
-                try:
-                    if p and stage and stage.GetPrimAtPath(p):
-                        stage.RemovePrim(p)
-                except Exception as ee:
-                    print("[Spawner][reset] fallback remove failed:", p, ee)
+        await app.next_update_async()
 
-            # Try clearing again after USD removals
-            try:
-                world.scene.clear()
-            except Exception as ee:
-                print("[Spawner][reset] second clear failed (ignored):", ee)
-
-        # 3) Recreate Chat root so next spawn works cleanly
+        # Recreate Chat root
         if stage and not stage.GetPrimAtPath("/World/Chat"):
             UsdGeom.Xform.Define(stage, "/World/Chat")
 
         self._spawned_prims.clear()
-        return "Environment reset."
+
 
 
     
@@ -241,6 +270,25 @@ class Spawner:
 
         return f"Unitree spawned with head camera ({cam_prim})"
 
+    # def _random_position_in_default_area(self):
+    #     area = self.DEFAULT_ASSET_AREA
+    #     return [
+    #         random.uniform(area["x_min"], area["x_max"]),
+    #         random.uniform(area["y_min"], area["y_max"]),
+    #         area["z"],
+    #     ]
+    def _random_position_in_default_area(self):
+        return self._random_position_in_area(self.DEFAULT_ASSET_AREA)
+
+    
+    def _random_position_in_area(self, area: dict):
+        return [
+            random.uniform(area["x_min"], area["x_max"]),
+            random.uniform(area["y_min"], area["y_max"]),
+            area["z"],
+        ]
+
+
 
     # --------------------------------------------------
     # SCENES (NO articulation, NO physics add)
@@ -260,6 +308,86 @@ class Spawner:
                 return f"{k} scene loaded."
 
         return f"Unknown scene: {name}"
+
+    # --------------------------------------------------
+    # SCENES (PROPS ASSETS LIKE TABLE, MUG, ETC)
+    # --------------------------------------------------
+    def spawn_asset_at(self, name: str, pos=None, location=None):
+        self._prepare_spawn()
+
+        if not name:
+            return "No object specified."
+
+        name = name.lower().strip()
+
+        # ----------------------------
+        # 1. Exact match
+        # ----------------------------
+        if name in self.ASSET_LIBRARY:
+            chosen_name = name
+
+        else:
+            # ----------------------------
+            # 2. Partial / keyword match
+            #    e.g. "mug" → ["yellow mug", "black mug"]
+            # ----------------------------
+            matches = [
+                k for k in self.ASSET_LIBRARY.keys()
+                if name in k
+            ]
+
+            if matches:
+                chosen_name = random.choice(matches)
+            else:
+                available = ", ".join(self.ASSET_LIBRARY.keys())
+                return (
+                    f"Asset not available: '{name}'. "
+                    f"For example, try: {available}"
+                )
+        
+        # ----------------------------
+        # Semantic location override
+        # ----------------------------
+        # if location in self.SEMANTIC_LOCATIONS:
+        #     pos = list(random.choice(self.SEMANTIC_LOCATIONS[location]))
+
+
+        # ----------------------------
+        # Spawn chosen asset
+        # ----------------------------
+        # DEFAULT_ASSET_POSITION = [1.756650568756057, 0.0, 1.0909934857926475]
+
+        if pos is not None:
+            final_pos = pos
+
+        elif location and location in self.SEMANTIC_LOCATIONS:
+            final_pos = self._random_position_in_area(
+                self.SEMANTIC_LOCATIONS[location]
+            )
+
+        else:
+            final_pos = self._random_position_in_default_area()
+
+
+        idx = self._next_index(chosen_name.replace(" ", "_"))
+        prim_path = f"/World/Chat/{chosen_name.replace(' ', '_')}_{idx}"
+
+        add_reference_to_stage(self.ASSET_LIBRARY[chosen_name], prim_path)
+
+        prim = SingleXFormPrim(prim_path)
+
+        # Set pose exactly as per Isaac Sim API
+        prim.set_world_pose(
+            position=np.array(final_pos),
+            orientation=np.array([1.0, 0.0, 0.0, 0.0])  # identity quaternion
+        )
+
+
+        self._spawned_prims.add(prim_path)
+
+        return f"{chosen_name} spawned at {final_pos}"
+
+
 
     def _prepare_spawn(self):
         self._ensure_environment()

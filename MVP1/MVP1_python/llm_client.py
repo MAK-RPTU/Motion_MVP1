@@ -23,8 +23,8 @@ class LLMClient:
 
     # def __init__(self, api_key="AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8", model="gemini-2.5-pro"):
     #     self.api_key = api_key or os.getenv("AIzaSyDKi1nW26G0zm2btw4LFFM0219HwpQZQy8")
-    # def __init__(self, model="gemini-2.5-pro"):
-    def __init__(self, model="gemini-2.0-flash"):
+    def __init__(self, model="gemini-2.5-pro"):
+    # def __init__(self, model="gemini-2.0-flash"):
         # Retrieve the key from the environment
         self.api_key = os.getenv("GEMINI_API_KEY")
         if self.api_key is None:
@@ -42,7 +42,13 @@ class LLMClient:
             Valid actions:
             - load_scene { scene }
             - spawn_robot { robot, position }
-            - spawn_object { object, position }
+            - spawn_object { object, position, location }
+
+            Location rules:
+            - location is a semantic place such as "sink", "table", "floor"
+            - If a semantic location is mentioned, include "location"
+            - Do NOT invent numeric coordinates for locations
+
 
             Position rules:
             - position must be a list of 3 numbers: [x, y, z]
@@ -54,6 +60,11 @@ class LLMClient:
             User: Spawn a robot at position (1, 0, 0)
             [
             {"action": "spawn_robot", "robot": "unitree", "position": [1, 0, 0]}
+            ]
+
+            User: Spawn a mug in the sink
+            [
+            {"action": "spawn_object", "object": "mug", "location": "sink"}
             ]
 
             User: Spawn a robot in a kitchen

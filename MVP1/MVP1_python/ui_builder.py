@@ -23,10 +23,13 @@ from isaacsim.gui.components.element_wrappers import CollapsableFrame, StateButt
 from isaacsim.gui.components.ui_utils import get_style
 from omni.usd import StageEventType
 from pxr import Sdf, UsdLux
+import asyncio
+import carb
+
 
 from .scenario import FrankaRmpFlowExampleScript
 from .chat_controller import ChatController
-
+from .gemini_robotics import CameraStream
 
 class UIBuilder:
     def __init__(self):
@@ -44,6 +47,10 @@ class UIBuilder:
         self._chat_controller = ChatController()
         self._chat_display_container = None
         self._chat_input_field = None
+
+        self._camera_stream = None
+
+
 
 
     ###################################################################################
@@ -239,6 +246,35 @@ class UIBuilder:
         # self._timeline.pause()
         pass
 
+    def _on_camera_frame(self, rgb):
+        carb.log_info(f"Camera frame received: {rgb.shape}")
+
+
+
+    def _on_camera_toggle(self):
+        if self._camera_stream is None:
+            self._camera_stream = CameraStream(
+                camera_prim_path="/World/Chat/h1/d435_rgb_module_link/head_camera",
+                on_frame_cb=self._on_camera_frame,
+            )
+
+            async def _start():
+                await self._camera_stream.initialize()
+                self._camera_stream.start()
+
+            asyncio.ensure_future(_start())
+        
+        if not self._timeline.is_playing():
+            carb.log_warn("Timeline is paused — camera stream will not run")
+
+
+        else:
+            self._camera_stream.stop()
+            self._camera_stream = None
+
+
+
+
     def _reset_extension(self):
         """This is called when the user opens a new stage from self.on_stage_event().
         All state should be reset.
@@ -271,6 +307,15 @@ class UIBuilder:
                         width=80,
                         clicked_fn=self._on_reset_clicked,                        
                     )
+
+                    # ui.Button(
+                    #     "START GEMINI",
+                    #     width=160,
+                    #     clicked_fn=self._on_camera_toggle,
+                    # )
+
+
+
 
 
                 # Scrollable chat history
