@@ -29,6 +29,8 @@ from omni.usd import StageEventType
 
 from .global_variables import EXTENSION_DESCRIPTION, EXTENSION_TITLE
 from .ui_builder import UIBuilder
+from .prompt_api import start_server_thread
+
 
 """
 This file serves as a basic template for the standard boilerplate operations
@@ -83,6 +85,8 @@ class Extension(omni.ext.IExt):
 
         # Must come AFTER the above
         self.ui_builder = UIBuilder()
+
+        start_server_thread()
 
 
 
