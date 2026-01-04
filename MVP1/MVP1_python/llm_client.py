@@ -39,10 +39,52 @@ class LLMClient:
 
             Convert user commands into JSON arrays of actions.
 
+            Intent mapping rules:
+
+            The following words or phrases ALL mean "spawn_object":
+            - spawn
+            - add
+            - insert
+            - place
+            - put
+            - create
+            - bring
+            - I need
+            - I want
+            - give me
+            - show me
+            - load an object
+            - drop
+
+            The following words or phrases ALL mean "remove_object":
+            - remove
+            - delete
+            - clear
+            - get rid of
+            - take away
+            - discard
+            - erase
+            - undo
+            - remove from the scene
+
+            The following words or phrases ALL mean "reset_environment":
+            - reset
+            - clear everything
+            - clear the scene
+            - clean the environment
+            - wipe the scene
+            - remove everything
+            - delete all objects
+            - start fresh
+            - start over
+            - new scene
+
             Valid actions:
             - load_scene { scene }
             - spawn_robot { robot, position }
             - spawn_object { object, position, location }
+            - remove_object { object }
+            - reset_environment
 
             Location rules:
             - location is a semantic place such as "sink", "table", "floor"
@@ -84,6 +126,71 @@ class LLMClient:
             {"action": "spawn_robot", "robot": "unitree"}
             ]
             Only output JSON. No explanations.
+
+            User: Remove the book
+            [
+            {"action": "remove_object", "object": "book"}
+            ]
+
+            User: Delete the robot
+            [
+            {"action": "remove_object", "object": "unitree"}
+            ]
+
+            User: Add a mug to the environment
+            [
+            {"action": "spawn_object", "object": "mug"}
+            ]
+
+            User: I need a chair in the room
+            [
+            {"action": "spawn_object", "object": "chair"}
+            ]
+
+            User: Put a book on the table
+            [
+            {"action": "spawn_object", "object": "book", "location": "table"}
+            ]
+
+            User: Insert a lamp
+            [
+            {"action": "spawn_object", "object": "lamp"}
+            ]
+
+            User: Get rid of the book
+            [
+            {"action": "remove_object", "object": "book"}
+            ]
+
+            User: Delete the chair from the scene
+            [
+            {"action": "remove_object", "object": "chair"}
+            ]
+
+            User: Clear the robot
+            [
+            {"action": "remove_object", "object": "unitree"}
+            ]
+
+            User: Reset the scene
+            [
+            {"action": "reset_environment"}
+            ]
+
+            User: Clear the whole environment
+            [
+            {"action": "reset_environment"}
+            ]
+
+            User: I want to start fresh
+            [
+            {"action": "reset_environment"}
+            ]
+
+            User: Delete everything from the scene
+            [
+            {"action": "reset_environment"}
+            ]
 
             """
 

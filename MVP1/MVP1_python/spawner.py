@@ -15,9 +15,11 @@ from omni.isaac.core.utils import rotations as rot_utils
 import omni.kit.app
 import asyncio
 import random
+import omni.client
 
 
 class Spawner:
+    HAS_CONTENT = 0x1  # omniverse internal flag
     ASSETS_ROOT = get_assets_root_path()
 
     ASSET_LIBRARY = {
@@ -39,6 +41,14 @@ class Spawner:
 
     def __init__(self):
         self._spawned_prims = set()
+
+        # --- Nucleus ---
+        self.NUCLEUS_ROOTS = [
+            "omniverse://35.227.93.135/NVIDIA/Assets",
+            "omniverse://35.227.93.135/NVIDIA/Environments",
+        ]
+        self._nucleus_index = None
+
 
         self.SEMANTIC_LOCATIONS = {
             "sink": {
@@ -62,6 +72,123 @@ class Spawner:
             "z": 1.0909935235977168,
         }
         self.DEFAULT_ASSET_AREA = DEFAULT_ASSET_AREA
+
+    def _crawl_nucleus_usd(self, root_url, out):
+        result, entries = omni.client.list(root_url)
+        if result != omni.client.Result.OK:
+            return
+
+        for e in entries:
+            full_path = f"{root_url}/{e.relative_path}"
+            is_file = bool(e.flags & self.HAS_CONTENT)
+
+            if any(x in full_path.lower() for x in ["/.thumbs", "/textures"]):
+                continue
+
+            if is_file:
+                if full_path.lower().endswith((".usd", ".usda", ".usdc")):
+                    out.append(full_path)
+            else:
+                self._crawl_nucleus_usd(full_path, out)
+
+
+    def build_nucleus_index(self):
+        if self._nucleus_index is not None:
+            return self._nucleus_index
+
+        print("[Spawner] Indexing Nucleus assets...")
+        assets = []
+
+        for root in self.NUCLEUS_ROOTS:
+            self._crawl_nucleus_usd(root, assets)
+
+        index = []
+        for p in assets:
+            text = (
+                p.lower()
+                .replace("omniverse://", "")
+                .replace("/", " ")
+                .replace("_", " ")
+            )
+            index.append({
+                "path": p,
+                "text": text,
+            })
+
+        self._nucleus_index = index
+        print(f"[Spawner] Indexed {len(index)} USD assets")
+        return index
+
+    def _score_asset(self, query, asset_text):
+        query = query.lower()
+        asset_text = asset_text.lower()
+
+        score = 0
+
+        # --- basic keyword match ---
+        for w in query.split():
+            if w in asset_text:
+                score += 1
+
+        # --- scene vs prop bias ---
+        if "environment" in query or "scene" in query:
+            if any(x in asset_text for x in ["environment", "archvis", "scenes", "residential"]):
+                score += 3
+            if any(x in asset_text for x in ["props", "decor", "furniture"]):
+                score -= 2
+
+        # --- prop bias ---
+        if any(x in query for x in ["book", "chair", "table", "mug", "lamp"]):
+            if any(x in asset_text for x in ["decor", "props", "furniture"]):
+                score += 2
+
+        # --- penalize junk ---
+        if any(x in asset_text for x in ["thumb", "texture", "material"]):
+            score -= 5
+
+        return score
+
+
+    def spawn_from_nucleus(self, query, pos=None):
+        self._prepare_spawn()
+
+        index = self.build_nucleus_index()
+
+        index = self._nucleus_index
+            if not index:
+                return "Assets are still loading. Please try again in a moment."
+
+
+        scored = [
+            (self._score_asset(query, a["text"]), a["path"])
+            for a in index
+        ]
+
+        scored = sorted(scored, reverse=True)
+        scored = [p for s, p in scored if s > 0]
+
+        if not scored:
+            return f"No Nucleus asset found for '{query}'"
+
+        usd_path = random.choice(scored[:5])  # diversify
+
+        if pos is None:
+            pos = self._random_position_in_default_area()
+
+        name = Path(usd_path).stem
+        idx = self._next_index(name)
+        prim_path = f"/World/Chat/{name}_{idx}"
+
+        add_reference_to_stage(usd_path, prim_path)
+
+        prim = SingleXFormPrim(prim_path)
+        prim.set_world_pose(
+            position=np.array(pos),
+            orientation=np.array([1, 0, 0, 0])
+        )
+
+        self._spawned_prims.add(prim_path)
+        return f"Spawned '{name}' from Nucleus"
 
 
     def _world(self):
@@ -293,10 +420,27 @@ class Spawner:
     # --------------------------------------------------
     # SCENES (NO articulation, NO physics add)
     # --------------------------------------------------
+    # def spawn_scene(self, name):
+    #     self._ensure_chat_root()
+    #     stage = get_current_stage()
+
+    #     for k, usd in self.ASSET_LIBRARY.items():
+    #         if k in name:
+    #             prim = f"/World/Chat/Scene_{k}"
+    #             if stage.GetPrimAtPath(prim):
+    #                 return f"{k} scene already loaded."
+
+    #             add_reference_to_stage(str(usd), prim)
+    #             self._spawned_prims.add(prim)
+    #             return f"{k} scene loaded."
+
+    #     return f"Unknown scene: {name}"
     def spawn_scene(self, name):
         self._ensure_chat_root()
         stage = get_current_stage()
+        name = name.lower()
 
+        # 1️⃣ Try legacy hardcoded scenes first (safe)
         for k, usd in self.ASSET_LIBRARY.items():
             if k in name:
                 prim = f"/World/Chat/Scene_{k}"
@@ -307,7 +451,14 @@ class Spawner:
                 self._spawned_prims.add(prim)
                 return f"{k} scene loaded."
 
-        return f"Unknown scene: {name}"
+        # 2️⃣ Fallback to Nucleus search (NEW)
+        result = self.spawn_from_nucleus(name)
+
+        if result.startswith("No Nucleus"):
+            return f"Unknown scene: {name}"
+
+        return result
+
 
     # --------------------------------------------------
     # SCENES (PROPS ASSETS LIKE TABLE, MUG, ETC)
@@ -387,8 +538,50 @@ class Spawner:
 
         return f"{chosen_name} spawned at {final_pos}"
 
-
-
     def _prepare_spawn(self):
         self._ensure_environment()
         self._ensure_chat_root()
+
+
+    def remove_from_chat(self, query: str):
+        """
+        Removes the best-matching prim under /World/Chat based on query.
+        """
+        stage = get_current_stage()
+        query = query.lower()
+
+        chat_root = "/World/Chat"
+        if not stage.GetPrimAtPath(chat_root):
+            return "No objects to remove."
+
+        candidates = []
+
+        for prim in stage.Traverse():
+            path = prim.GetPath().pathString
+
+            # Only allow deletion inside /World/Chat
+            if not path.startswith(chat_root + "/"):
+                continue
+
+            name = prim.GetName().lower()
+
+            # Simple semantic match
+            score = 0
+            for w in query.split():
+                if w in name:
+                    score += 1
+
+            if score > 0:
+                candidates.append((score, path))
+
+        if not candidates:
+            return f"No matching object found for '{query}'."
+
+        # Pick best match
+        candidates.sort(reverse=True)
+        _, prim_path = candidates[0]
+
+        stage.RemovePrim(prim_path)
+        self._spawned_prims.discard(prim_path)
+
+        return f"Removed '{Path(prim_path).name}'."
