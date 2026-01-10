@@ -2,6 +2,7 @@ from .spawner import Spawner
 from .llm_client import LLMClient
 from omni.isaac.core.utils.stage import is_stage_loading
 import time
+import asyncio
 
 class ChatController:
 
@@ -73,15 +74,30 @@ class ChatController:
             #     location = cmd.get("location")  # may be None
             #     responses.append(self.spawner.spawn_asset_at(obj, pos, location))
 
+            # elif action == "spawn_object":
+            #     obj = cmd.get("object")
+            #     pos = cmd.get("position")  # may be None
+            #     location = cmd.get("location")  # reuse this as area
+
+            #     # Use Nucleus-backed spawning
+            #     if pos is not None:
+            #         responses.append(self.spawner.spawn_from_nucleus(obj, pos=pos, area=location))
+            #     else:
+            #         responses.append(self.spawner.spawn_from_nucleus(obj))
+
             elif action == "spawn_object":
                 obj = cmd.get("object")
-                pos = cmd.get("position")  # may be None
+                pos = cmd.get("position")      # may be None
+                location = cmd.get("location") # semantic area (sink, table, etc.)
 
-                # Use Nucleus-backed spawning
-                if pos is not None:
-                    responses.append(self.spawner.spawn_from_nucleus(obj, pos))
-                else:
-                    responses.append(self.spawner.spawn_from_nucleus(obj))
+                responses.append(
+                    self.spawner.spawn_from_nucleus(
+                        query=obj,
+                        pos=pos,
+                        area=location
+                    )
+                )
+
 
             elif action == "remove_object":
                 obj = cmd.get("object")

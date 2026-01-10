@@ -97,6 +97,11 @@ class LLMClient:
             - Only include "position" if the user explicitly specifies coordinates
             - If no position is mentioned, omit the field entirely
 
+            Area rules:
+            - location can also represent a spawn area (e.g., "sink", "table", "floor", "default")
+            - If the user says "randomly", "anywhere", or "place it somewhere",
+            include "location": "default"
+
             Examples:
 
             User: Spawn a robot at position (1, 0, 0)

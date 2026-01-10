@@ -52,6 +52,10 @@ This class sets up standard useful callback functions in UIBuilder:
 
 
 class Extension(omni.ext.IExt):
+
+    def _has_ui(self):
+        return hasattr(self, "ui_builder") and self.ui_builder is not None
+
     def on_startup(self, ext_id: str):
         self.ext_id = ext_id
 
@@ -88,8 +92,6 @@ class Extension(omni.ext.IExt):
 
         start_server_thread()
 
-
-
     def on_shutdown(self):
         self._models = {}
         remove_menu_items(self._menu_items, EXTENSION_TITLE)
@@ -116,7 +118,9 @@ class Extension(omni.ext.IExt):
             self._usd_context = None
             self._stage_event_sub = None
             self._timeline_event_sub = None
-            self.ui_builder.cleanup()
+            # self.ui_builder.cleanup()
+            if self._has_ui():
+                self.ui_builder.cleanup()
 
     def _build_ui(self):
         with self._window.frame:
@@ -146,6 +150,15 @@ class Extension(omni.ext.IExt):
         self._window.visible = not self._window.visible
         self.ui_builder.on_menu_callback()
 
+    # def _on_timeline_event(self, event):
+    #     if event.type == int(omni.timeline.TimelineEventType.PLAY):
+    #         if not self._physx_subscription:
+    #             self._physx_subscription = self._physxIFace.subscribe_physics_step_events(self._on_physics_step)
+    #     elif event.type == int(omni.timeline.TimelineEventType.STOP):
+    #         self._physx_subscription = None
+
+    #     self.ui_builder.on_timeline_event(event)
+
     def _on_timeline_event(self, event):
         if event.type == int(omni.timeline.TimelineEventType.PLAY):
             if not self._physx_subscription:
@@ -153,18 +166,35 @@ class Extension(omni.ext.IExt):
         elif event.type == int(omni.timeline.TimelineEventType.STOP):
             self._physx_subscription = None
 
-        self.ui_builder.on_timeline_event(event)
+        if self._has_ui():
+            self.ui_builder.on_timeline_event(event)
+
+
+    # def _on_physics_step(self, step):
+    #     self.ui_builder.on_physics_step(step)
 
     def _on_physics_step(self, step):
-        self.ui_builder.on_physics_step(step)
+        if self._has_ui():
+            self.ui_builder.on_physics_step(step)
+
+
+    # def _on_stage_event(self, event):
+    #     if event.type == int(StageEventType.OPENED) or event.type == int(StageEventType.CLOSED):
+    #         # stage was opened or closed, cleanup
+    #         self._physx_subscription = None
+    #         self.ui_builder.cleanup()
+
+    #     self.ui_builder.on_stage_event(event)
 
     def _on_stage_event(self, event):
-        if event.type == int(StageEventType.OPENED) or event.type == int(StageEventType.CLOSED):
-            # stage was opened or closed, cleanup
+        if event.type in (int(StageEventType.OPENED), int(StageEventType.CLOSED)):
             self._physx_subscription = None
-            self.ui_builder.cleanup()
+            if self._has_ui():
+                self.ui_builder.cleanup()
 
-        self.ui_builder.on_stage_event(event)
+        if self._has_ui():
+            self.ui_builder.on_stage_event(event)
+
 
     def _build_extension_ui(self):
         # Call user function for building UI

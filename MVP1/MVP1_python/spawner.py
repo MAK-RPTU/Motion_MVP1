@@ -16,7 +16,10 @@ import omni.kit.app
 import asyncio
 import random
 import omni.client
+import os
+import json
 
+NUCLEUS_CACHE_FILE = "/home/ubuntu/.cache/nucleus_asset_index.json"
 
 class Spawner:
     HAS_CONTENT = 0x1  # omniverse internal flag
@@ -42,13 +45,20 @@ class Spawner:
     def __init__(self):
         self._spawned_prims = set()
 
-        # --- Nucleus ---
+        # --- Full Nucleus ---
         self.NUCLEUS_ROOTS = [
             "omniverse://35.227.93.135/NVIDIA/Assets",
             "omniverse://35.227.93.135/NVIDIA/Environments",
         ]
-        self._nucleus_index = None
 
+
+        # Nucleus Test Roots to cache
+        # self.NUCLEUS_ROOTS = [
+        #     "omniverse://35.227.93.135/NVIDIA/Assets/Isaac/5.1/Isaac/Props/Mugs",
+        #     "omniverse://35.227.93.135/NVIDIA/Assets/ArchVis/Residential/Decor/Books",
+        # ]
+
+        self._nucleus_index = None
 
         self.SEMANTIC_LOCATIONS = {
             "sink": {
@@ -65,42 +75,56 @@ class Spawner:
 
 
         DEFAULT_ASSET_AREA = {
-            "x_min": 2.5758770259863537,
-            "x_max": 3.0930301090347485,
-            "y_min": 0.17586957972383563,
-            "y_max": 0.4928272805675453,
-            "z": 1.0909935235977168,
+            # "x_min": 2.5758770259863537,
+            # "x_max": 3.0930301090347485,
+            # "y_min": 0.17586957972383563,
+            # "y_max": 0.4928272805675453,
+            # "z": 1.0909935235977168,
+
+            "x_min": 2.42951,
+            "x_max": 3.92451,
+            "y_min": 0.10206,
+            "y_max": 0.46199,
+            "z": 0.957,
         }
         self.DEFAULT_ASSET_AREA = DEFAULT_ASSET_AREA
 
-    def _crawl_nucleus_usd(self, root_url, out):
-        result, entries = omni.client.list(root_url)
-        if result != omni.client.Result.OK:
-            return
+        if os.path.exists(NUCLEUS_CACHE_FILE):
+            try:
+                with open(NUCLEUS_CACHE_FILE, "r") as f:
+                    self._nucleus_index = json.load(f)
+                print(f"[Spawner] Loaded Nucleus index from cache ({len(self._nucleus_index)} assets)")
+            except Exception as e:
+                print("[Spawner] Failed to load cache:", e)
 
-        for e in entries:
-            full_path = f"{root_url}/{e.relative_path}"
-            is_file = bool(e.flags & self.HAS_CONTENT)
-
-            if any(x in full_path.lower() for x in ["/.thumbs", "/textures"]):
-                continue
-
-            if is_file:
-                if full_path.lower().endswith((".usd", ".usda", ".usdc")):
-                    out.append(full_path)
-            else:
-                self._crawl_nucleus_usd(full_path, out)
-
-
-    def build_nucleus_index(self):
+    async def build_nucleus_index_async(self):
         if self._nucleus_index is not None:
             return self._nucleus_index
 
-        print("[Spawner] Indexing Nucleus assets...")
+        print("[Spawner] Async indexing Nucleus assets...")
+
         assets = []
 
+        async def crawl(root_url):
+            result, entries = await omni.client.list_async(root_url)
+            if result != omni.client.Result.OK:
+                return
+
+            for e in entries:
+                full_path = f"{root_url}/{e.relative_path}"
+                is_file = bool(e.flags & self.HAS_CONTENT)
+
+                if any(x in full_path.lower() for x in ["/.thumbs", "/textures"]):
+                    continue
+
+                if is_file:
+                    if full_path.lower().endswith((".usd", ".usda", ".usdc")):
+                        assets.append(full_path)
+                else:
+                    await crawl(full_path)
+
         for root in self.NUCLEUS_ROOTS:
-            self._crawl_nucleus_usd(root, assets)
+            await crawl(root)
 
         index = []
         for p in assets:
@@ -110,14 +134,23 @@ class Spawner:
                 .replace("/", " ")
                 .replace("_", " ")
             )
-            index.append({
-                "path": p,
-                "text": text,
-            })
+            index.append({"path": p, "text": text})
 
         self._nucleus_index = index
-        print(f"[Spawner] Indexed {len(index)} USD assets")
+        print(f"[Spawner] Indexed {len(index)} USD assets (async)")
+
+        try:
+            os.makedirs(os.path.dirname(NUCLEUS_CACHE_FILE), exist_ok=True)
+            with open(NUCLEUS_CACHE_FILE, "w") as f:
+                # json.dump(index, f)
+                json.dump(index, f, indent=2, ensure_ascii=False)
+            print("[Spawner] Saved Nucleus index cache")
+        except Exception as e:
+            print("[Spawner] Failed to save cache:", e)
+
+
         return index
+
 
     def _score_asset(self, query, asset_text):
         query = query.lower()
@@ -148,16 +181,32 @@ class Spawner:
 
         return score
 
+    def _ensure_chat_root(self):
+        stage = get_current_stage()
+        if not stage.GetPrimAtPath("/World/Chat"):
+            UsdGeom.Xform.Define(stage, "/World/Chat")
+            
+    def _prepare_spawn(self):
+        self._ensure_environment()
+        self._ensure_chat_root()
 
-    def spawn_from_nucleus(self, query, pos=None):
+    def _random_position_in_default_area(self):
+        return self._random_position_in_area(self.DEFAULT_ASSET_AREA)
+
+    
+    def _random_position_in_area(self, area: dict):
+        return [
+            random.uniform(area["x_min"], area["x_max"]),
+            random.uniform(area["y_min"], area["y_max"]),
+            area["z"],
+        ]
+
+    def spawn_from_nucleus(self, query, pos=None, area=None):
         self._prepare_spawn()
 
-        index = self.build_nucleus_index()
-
         index = self._nucleus_index
-            if not index:
-                return "Assets are still loading. Please try again in a moment."
-
+        if not index:
+            return "Assets are still loading. Please try again in a moment."
 
         scored = [
             (self._score_asset(query, a["text"]), a["path"])
@@ -172,8 +221,16 @@ class Spawner:
 
         usd_path = random.choice(scored[:5])  # diversify
 
-        if pos is None:
-            pos = self._random_position_in_default_area()
+        # if pos is None:
+        #     pos = self._random_position_in_default_area()
+
+        if pos is not None:
+            final_pos = pos
+        elif area and area in self.SEMANTIC_LOCATIONS:
+            final_pos = self._random_position_in_area(self.SEMANTIC_LOCATIONS[area])
+        else:
+            final_pos = self._random_position_in_default_area()
+
 
         name = Path(usd_path).stem
         idx = self._next_index(name)
@@ -183,12 +240,26 @@ class Spawner:
 
         prim = SingleXFormPrim(prim_path)
         prim.set_world_pose(
-            position=np.array(pos),
+            position=np.array(final_pos),
             orientation=np.array([1, 0, 0, 0])
         )
 
+        # --- Handle unit-mismatch scaling safely ---
+        scale = prim.get_local_scale()
+
+        if scale is not None:
+            sx, sy, sz = scale
+
+            # Detect auto unit compensation (cm → m or mm → m)
+            if abs(sx - sy) < 1e-6 and abs(sx - sz) < 1e-6:
+                if sx in (0.01, 0.001):
+                    # Undo unit compensation ONLY
+                    prim.set_local_scale(np.array([1.0, 1.0, 1.0]))
+
+
         self._spawned_prims.add(prim_path)
         return f"Spawned '{name}' from Nucleus"
+
 
 
     def _world(self):
@@ -232,10 +303,7 @@ class Spawner:
             light_prim.CreateAngleAttr(0.5)
 
 
-    def _ensure_chat_root(self):
-        stage = get_current_stage()
-        if not stage.GetPrimAtPath("/World/Chat"):
-            UsdGeom.Xform.Define(stage, "/World/Chat")
+
     # --------------------------------------------------
     # RESET (FIXED)
     # --------------------------------------------------
@@ -404,17 +472,6 @@ class Spawner:
     #         random.uniform(area["y_min"], area["y_max"]),
     #         area["z"],
     #     ]
-    def _random_position_in_default_area(self):
-        return self._random_position_in_area(self.DEFAULT_ASSET_AREA)
-
-    
-    def _random_position_in_area(self, area: dict):
-        return [
-            random.uniform(area["x_min"], area["x_max"]),
-            random.uniform(area["y_min"], area["y_max"]),
-            area["z"],
-        ]
-
 
 
     # --------------------------------------------------
@@ -538,41 +595,45 @@ class Spawner:
 
         return f"{chosen_name} spawned at {final_pos}"
 
-    def _prepare_spawn(self):
-        self._ensure_environment()
-        self._ensure_chat_root()
-
 
     def remove_from_chat(self, query: str):
         """
-        Removes the best-matching prim under /World/Chat based on query.
+        Removes the best-matching asset under /World/Chat,
+        even if the semantic object is nested.
         """
         stage = get_current_stage()
         query = query.lower()
 
         chat_root = "/World/Chat"
-        if not stage.GetPrimAtPath(chat_root):
+        chat_prim = stage.GetPrimAtPath(chat_root)
+        if not chat_prim:
             return "No objects to remove."
 
         candidates = []
 
+        # Traverse everything under /World/Chat
         for prim in stage.Traverse():
             path = prim.GetPath().pathString
 
-            # Only allow deletion inside /World/Chat
             if not path.startswith(chat_root + "/"):
                 continue
 
             name = prim.GetName().lower()
 
-            # Simple semantic match
-            score = 0
-            for w in query.split():
-                if w in name:
-                    score += 1
+            # Simple keyword match
+            score = sum(1 for w in query.split() if w in name)
+            if score == 0:
+                continue
 
-            if score > 0:
-                candidates.append((score, path))
+            # Walk UP to find direct child of /World/Chat
+            p = prim
+            while p:
+                parent = p.GetParent()
+                if parent and parent.GetPath().pathString == chat_root:
+                    root_candidate = p.GetPath().pathString
+                    candidates.append((score, root_candidate))
+                    break
+                p = parent
 
         if not candidates:
             return f"No matching object found for '{query}'."
@@ -585,3 +646,4 @@ class Spawner:
         self._spawned_prims.discard(prim_path)
 
         return f"Removed '{Path(prim_path).name}'."
+
