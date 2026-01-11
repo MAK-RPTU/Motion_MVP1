@@ -84,6 +84,7 @@ class LLMClient:
             - spawn_robot { robot, position }
             - spawn_object { object, position, location }
             - remove_object { object }
+            - robot_task { task, object, destination }
             - reset_environment
 
             Location rules:
@@ -102,7 +103,30 @@ class LLMClient:
             - If the user says "randomly", "anywhere", or "place it somewhere",
             include "location": "default"
 
+            Scene rules:
+            - Warehouses, rooms, offices, kitchens, environments are SCENES.
+            - If the object is a scene, ALWAYS use "load_scene".
+            - NEVER use "spawn_object" for scenes.
+            - Examples of scenes: warehouse, warehouse_breadcrates, office, room, kitchen.
+
+            Robot task rules:
+            - If the user asks the robot to move, carry, take, deliver, bring, transport something somewhere:
+            output action = "robot_task"
+            - "object" is the item (cart/trolley/dolly/mug/etc.)
+            - "destination" is the target place (e.g. station 1, station_1)
+            - Do NOT invent coordinates.
+            - Do NOT spawn anything for robot_task unless user explicitly asks to spawn.
+
+            IMPORTANT:
+            - NEVER spawn a robot unless the user explicitly mentions a robot.
+            - Loading a scene does NOT imply spawning a robot.
+
             Examples:
+
+            User: Add a warehouse with bread crates
+            [
+            {"action": "load_scene", "scene": "warehouse_breadcrates"}
+            ]
 
             User: Spawn a robot at position (1, 0, 0)
             [
@@ -119,6 +143,7 @@ class LLMClient:
             {"action": "load_scene", "scene": "kitchen"},
             {"action": "spawn_robot", "robot": "unitree"}
             ]
+
             User: Spawn a robot in a office
             [
             {"action": "load_scene", "scene": "office"},
@@ -130,7 +155,6 @@ class LLMClient:
             {"action": "load_scene", "scene": "room"},
             {"action": "spawn_robot", "robot": "unitree"}
             ]
-            Only output JSON. No explanations.
 
             User: Remove the book
             [
@@ -196,6 +220,17 @@ class LLMClient:
             [
             {"action": "reset_environment"}
             ]
+
+            User: Take the trolley to station 1
+            [
+            {"action":"robot_task","task":"deliver","object":"trolley","destination":"station_1"}
+            ]
+
+            User: Bring the cart to station 2
+            [
+            {"action":"robot_task","task":"deliver","object":"cart","destination":"station_2"}
+            ]
+
 
             """
 

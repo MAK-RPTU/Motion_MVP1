@@ -3,12 +3,15 @@ from .llm_client import LLMClient
 from omni.isaac.core.utils.stage import is_stage_loading
 import time
 import asyncio
+from .robot_task_controller import RobotTaskController
+
 
 class ChatController:
 
     def __init__(self):
         self.spawner = Spawner()
         self.llm = LLMClient()
+        self.robot_ctrl = RobotTaskController()
 
         # Build Nucleus index in background
         asyncio.ensure_future(self.spawner.build_nucleus_index_async())
@@ -85,19 +88,34 @@ class ChatController:
             #     else:
             #         responses.append(self.spawner.spawn_from_nucleus(obj))
 
+            # elif action == "spawn_object":
+            #     obj = cmd.get("object")
+            #     pos = cmd.get("position")      # may be None
+            #     location = cmd.get("location") # semantic area (sink, table, etc.)
+
+            #     responses.append(
+            #         self.spawner.spawn_from_nucleus(
+            #             query=obj,
+            #             pos=pos,
+            #             area=location
+            #         )
+            #     )
+
             elif action == "spawn_object":
                 obj = cmd.get("object")
-                pos = cmd.get("position")      # may be None
-                location = cmd.get("location") # semantic area (sink, table, etc.)
+
+                # 🚨 Scene safety override
+                if obj in self.spawner.SCENE_LIBRARY:
+                    responses.append(self.spawner.spawn_scene(obj))
+                    continue
 
                 responses.append(
                     self.spawner.spawn_from_nucleus(
                         query=obj,
-                        pos=pos,
-                        area=location
+                        pos=cmd.get("position"),
+                        area=cmd.get("location")
                     )
                 )
-
 
             elif action == "remove_object":
                 obj = cmd.get("object")
@@ -108,6 +126,31 @@ class ChatController:
 
             elif action == "reset_environment":
                 responses.append(self.spawner.reset_environment())
+
+            elif action == "robot_task":
+                # Acknowledge immediately
+                task = cmd.get("task", "deliver")
+                obj = cmd.get("object")
+                dest = cmd.get("destination")
+
+                if not obj or not dest:
+                    responses.append("Robot task missing object or destination.")
+                    continue
+
+                responses.append(f"System: Acknowledged. Robot will take '{obj}' to '{dest}'.")
+
+                # Execute dummy controller
+                result = self.robot_ctrl.execute_task({
+                    "task": task,
+                    "object": obj,
+                    "destination": dest
+                })
+
+                if result.get("ok"):
+                    responses.append(f"System: {result.get('message')}")
+                else:
+                    responses.append(f"System: {result.get('message')}")
+
   
 
         return "\n".join(responses)

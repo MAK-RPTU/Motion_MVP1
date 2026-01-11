@@ -32,6 +32,8 @@ class Spawner:
         "room": f"{ASSETS_ROOT}/Isaac/Environments/Simple_Room/simple_room.usd",
         "warehouse": f"{ASSETS_ROOT}/Isaac/Environments/Simple_Warehouse/warehouse.usd",
 
+        "warehouse_breadcrates": f"/home/ubuntu/Motion_MVP1/Sample_scenes_Unitreeh1/Warehouse_Brot.usd",
+
         "packing table": f"{ASSETS_ROOT}/Isaac/Props/PackingTable/packing_table.usd",
 
         "unitree": f"{ASSETS_ROOT}/Isaac/Robots/Unitree/H1/payloads/base.usda",
@@ -41,6 +43,13 @@ class Spawner:
         "black mug": f"{ASSETS_ROOT}/Isaac/Props/Mugs/SM_Mug_B1.usd",
     }
 
+    SCENE_LIBRARY = {
+        "kitchen": ASSET_LIBRARY["kitchen"],
+        "office": ASSET_LIBRARY["office"],
+        "room": ASSET_LIBRARY["room"],
+        "warehouse": ASSET_LIBRARY["warehouse"],
+        "warehouse_breadcrates": ASSET_LIBRARY["warehouse_breadcrates"],
+        }
 
     def __init__(self):
         self._spawned_prims = set()
@@ -185,23 +194,87 @@ class Spawner:
         stage = get_current_stage()
         if not stage.GetPrimAtPath("/World/Chat"):
             UsdGeom.Xform.Define(stage, "/World/Chat")
-            
+
+    def _world(self):
+        world = World.instance()
+        return world if world else World()
+
+    def _ensure_environment(self):
+        """
+        Spawns a ground plane and a light ONCE.
+        These are persistent and should not be deleted on reset.
+        """
+        stage = get_current_stage()
+        world = self._world()
+
+        # --------------------------------------------------
+        # Environment root
+        # --------------------------------------------------
+        if not stage.GetPrimAtPath("/World/Environment"):
+            UsdGeom.Xform.Define(stage, "/World/Environment")
+
+        # --------------------------------------------------
+        # Ground plane
+        # --------------------------------------------------
+        if not stage.GetPrimAtPath("/World/Environment/GroundPlane"):
+            ground = GroundPlane(
+                prim_path="/World/Environment/GroundPlane",
+                size=50.0,
+                color=np.array([0.5, 0.5, 0.5]),
+            )
+            if not world.scene.get_object("ground_plane"):
+                world.scene.add(ground)
+
+        # --------------------------------------------------
+        # Light
+        # --------------------------------------------------
+        if not stage.GetPrimAtPath("/World/Environment/Light"):
+            light_prim = UsdLux.DistantLight.Define(
+                stage, "/World/Environment/Light"
+            )
+            light_prim.CreateIntensityAttr(3000.0)
+            light_prim.CreateAngleAttr(0.5)
+
+
     def _prepare_spawn(self):
         self._ensure_environment()
         self._ensure_chat_root()
 
-    def _random_position_in_default_area(self):
-        return self._random_position_in_area(self.DEFAULT_ASSET_AREA)
+    def _next_index(self, prefix: str) -> int:
+        """
+        Finds the next available index for prims like:
+        /World/Chat/Unitree_0
+        /World/Chat/Unitree_1
+        """
+        stage = get_current_stage()
+        pattern = re.compile(rf"{prefix}_(\d+)$")
 
-    
+        max_idx = -1
+        for prim in stage.Traverse():
+            name = prim.GetName()
+            match = pattern.match(name)
+            if match:
+                max_idx = max(max_idx, int(match.group(1)))
+
+        return max_idx + 1
+
     def _random_position_in_area(self, area: dict):
         return [
             random.uniform(area["x_min"], area["x_max"]),
             random.uniform(area["y_min"], area["y_max"]),
             area["z"],
         ]
+    
+    def _random_position_in_default_area(self):
+        return self._random_position_in_area(self.DEFAULT_ASSET_AREA)
+
 
     def spawn_from_nucleus(self, query, pos=None, area=None):
+
+        banned = ("robot", "unitree", "h1", "scene", "warehouse", "office", "room")
+        if any(b in query.lower() for b in banned):
+            return f"'{query}' is not a spawnable prop."
+        
         self._prepare_spawn()
 
         index = self._nucleus_index
@@ -262,46 +335,6 @@ class Spawner:
 
 
 
-    def _world(self):
-        world = World.instance()
-        return world if world else World()
-
-    def _ensure_environment(self):
-        """
-        Spawns a ground plane and a light ONCE.
-        These are persistent and should not be deleted on reset.
-        """
-        stage = get_current_stage()
-        world = self._world()
-
-        # --------------------------------------------------
-        # Environment root
-        # --------------------------------------------------
-        if not stage.GetPrimAtPath("/World/Environment"):
-            UsdGeom.Xform.Define(stage, "/World/Environment")
-
-        # --------------------------------------------------
-        # Ground plane
-        # --------------------------------------------------
-        if not stage.GetPrimAtPath("/World/Environment/GroundPlane"):
-            ground = GroundPlane(
-                prim_path="/World/Environment/GroundPlane",
-                size=50.0,
-                color=np.array([0.5, 0.5, 0.5]),
-            )
-            if not world.scene.get_object("ground_plane"):
-                world.scene.add(ground)
-
-        # --------------------------------------------------
-        # Light
-        # --------------------------------------------------
-        if not stage.GetPrimAtPath("/World/Environment/Light"):
-            light_prim = UsdLux.DistantLight.Define(
-                stage, "/World/Environment/Light"
-            )
-            light_prim.CreateIntensityAttr(3000.0)
-            light_prim.CreateAngleAttr(0.5)
-
 
 
     # --------------------------------------------------
@@ -339,29 +372,9 @@ class Spawner:
 
         self._spawned_prims.clear()
 
-
-
     
-    def _next_index(self, prefix: str) -> int:
-        """
-        Finds the next available index for prims like:
-        /World/Chat/Unitree_0
-        /World/Chat/Unitree_1
-        """
-        stage = get_current_stage()
-        pattern = re.compile(rf"{prefix}_(\d+)$")
-
-        max_idx = -1
-        for prim in stage.Traverse():
-            name = prim.GetName()
-            match = pattern.match(name)
-            if match:
-                max_idx = max(max_idx, int(match.group(1)))
-
-        return max_idx + 1
-
     # --------------------------------------------------
-    # BASIC SHAPES
+    # BASIC SHAPES TESTING
     # --------------------------------------------------
     def spawn_cube_at(self, pos):
         self._prepare_spawn()
@@ -429,7 +442,7 @@ class Spawner:
     # --------------------------------------------------
     # ROBOT (ONLY articulation in system)
     # --------------------------------------------------
-    def spawn_unitree_at(self, pos=None):
+    # def spawn_unitree_at(self, pos=None):
         self._prepare_spawn()
 
         if pos is None:
@@ -492,29 +505,50 @@ class Spawner:
     #             return f"{k} scene loaded."
 
     #     return f"Unknown scene: {name}"
-    def spawn_scene(self, name):
+    # def spawn_scene(self, name):
+    #     self._ensure_chat_root()
+    #     stage = get_current_stage()
+    #     name = name.lower()
+
+    #     # 1️⃣ Try legacy hardcoded scenes first (safe)
+    #     for k, usd in self.ASSET_LIBRARY.items():
+    #         if k in name:
+    #             prim = f"/World/Chat/Scene_{k}"
+    #             if stage.GetPrimAtPath(prim):
+    #                 return f"{k} scene already loaded."
+
+    #             add_reference_to_stage(str(usd), prim)
+    #             self._spawned_prims.add(prim)
+    #             return f"{k} scene loaded."
+
+    #     # 2️⃣ Fallback to Nucleus search (NEW)
+    #     result = self.spawn_from_nucleus(name)
+
+    #     if result.startswith("No Nucleus"):
+    #         return f"Unknown scene: {name}"
+
+    #     return result
+
+    def spawn_scene(self, name: str):
         self._ensure_chat_root()
         stage = get_current_stage()
-        name = name.lower()
+        name_norm = (name or "").lower().strip()
 
-        # 1️⃣ Try legacy hardcoded scenes first (safe)
-        for k, usd in self.ASSET_LIBRARY.items():
-            if k in name:
-                prim = f"/World/Chat/Scene_{k}"
+        # Prefer longest / most specific scene names
+        for scene_id in sorted(self.SCENE_LIBRARY.keys(), key=len, reverse=True):
+            scene_id_norm = scene_id.lower().strip()
+
+            if (scene_id_norm in name_norm) or (scene_id_norm.replace("_", " ") in name_norm):
+                prim = f"/World/Chat/Scene_{scene_id_norm}"
                 if stage.GetPrimAtPath(prim):
-                    return f"{k} scene already loaded."
+                    return f"{scene_id_norm} scene already loaded."
 
-                add_reference_to_stage(str(usd), prim)
+                add_reference_to_stage(self.SCENE_LIBRARY[scene_id_norm], prim)
                 self._spawned_prims.add(prim)
-                return f"{k} scene loaded."
+                return f"{scene_id_norm} scene loaded."
 
-        # 2️⃣ Fallback to Nucleus search (NEW)
-        result = self.spawn_from_nucleus(name)
+        return f"Unknown scene: {name}"
 
-        if result.startswith("No Nucleus"):
-            return f"Unknown scene: {name}"
-
-        return result
 
 
     # --------------------------------------------------
