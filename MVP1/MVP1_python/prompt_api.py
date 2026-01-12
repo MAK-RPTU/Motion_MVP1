@@ -9,9 +9,12 @@ import queue
 import asyncio
 
 import omni.kit.app
+import omni.kit.async_engine as async_engine
 
 from .chat_controller import ChatController
+import logging
 
+logger = logging.getLogger("uvicorn.error")
 # -----------------------------------------------------------------------------
 # Globals
 # -----------------------------------------------------------------------------
@@ -40,10 +43,23 @@ class PromptResponse(BaseModel):
 # -----------------------------------------------------------------------------
 @app.post("/prompt", response_model=PromptResponse)
 def send_prompt(req: PromptRequest):
-    carb.log_info(f"[API] Prompt received: {req.prompt}")
+
+    prompt = req.prompt.strip()
+
+    # 🚑 FILTER HEALTH / KEEPALIVE
+    if prompt.lower() in {"ping", "pong", "health", "ok"}:
+        return {"response": "ok"}
+
+    
+    logging.getLogger("uvicorn.error").warning(
+        f"[API] REAL PROMPT >>>{repr(prompt)}<<<"
+    )
+    # 2. Isaac-specific log
+    carb.log_warn(f"[API] REAL PROMPT >>>{prompt}<<<")
+    
 
     # Put prompt in queue for Isaac main thread
-    _prompt_queue.put(req.prompt)
+    _prompt_queue.put(prompt)
 
     return {"response": "Prompt received and queued."}
 
@@ -116,8 +132,8 @@ def start_server_thread():
     _server_thread.start()
 
     # Start Isaac-side processing loop
-    asyncio.ensure_future(_process_prompts_async())
-
+    # asyncio.ensure_future(_process_prompts_async())
+    async_engine.run_coroutine(_process_prompts_async())
 
 def stop_server():
     global _server_started, _server

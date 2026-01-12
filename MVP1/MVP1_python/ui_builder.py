@@ -25,7 +25,8 @@ from omni.usd import StageEventType
 from pxr import Sdf, UsdLux
 import asyncio
 import carb
-
+import omni.kit.app
+import omni.kit.async_engine as async_engine
 
 from .scenario import FrankaRmpFlowExampleScript
 from .chat_controller import ChatController
@@ -262,8 +263,9 @@ class UIBuilder:
                 await self._camera_stream.initialize()
                 self._camera_stream.start()
 
-            asyncio.ensure_future(_start())
-        
+            # asyncio.ensure_future(_start())
+            async_engine.run_coroutine(_start())
+
         if not self._timeline.is_playing():
             carb.log_warn("Timeline is paused — camera stream will not run")
 

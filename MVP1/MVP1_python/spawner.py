@@ -5,7 +5,7 @@ from omni.isaac.core.objects import DynamicCuboid, VisualSphere, GroundPlane
 from isaacsim.core.prims import SingleArticulation, SingleXFormPrim, XFormPrim
 from isaacsim.core.utils.stage import add_reference_to_stage, get_current_stage
 from isaacsim.storage.native import get_assets_root_path
-from pxr import UsdGeom, UsdLux
+from pxr import Usd, UsdGeom, UsdLux, UsdPhysics, PhysxSchema
 import re
 from omni.isaac.sensor import Camera
 from omni.isaac.core.utils.rotations import euler_angles_to_quat
@@ -13,6 +13,11 @@ import time
 from omni.isaac.core.utils.prims import is_prim_path_valid
 from omni.isaac.core.utils import rotations as rot_utils
 import omni.kit.app
+import omni.timeline
+import omni.kit.commands
+import omni.physx as _physx
+import omni.kit.async_engine as async_engine 
+
 import asyncio
 import random
 import omni.client
@@ -50,6 +55,23 @@ class Spawner:
         "warehouse": ASSET_LIBRARY["warehouse"],
         "warehouse_breadcrates": ASSET_LIBRARY["warehouse_breadcrates"],
         }
+    
+    SCENE_ALIASES = {
+        "warehouse_breadcrates": [
+            "warehouse with bread",
+            "bread warehouse",
+            "bread factory",
+            "factory with bread",
+            "bread storage",
+            "bread crates warehouse",
+        ],
+        "warehouse": [
+            "factory",
+            "industrial hall",
+            "storage hall",
+        ],
+    }
+
 
     def __init__(self):
         self._spawned_prims = set()
@@ -105,6 +127,112 @@ class Spawner:
                 print(f"[Spawner] Loaded Nucleus index from cache ({len(self._nucleus_index)} assets)")
             except Exception as e:
                 print("[Spawner] Failed to load cache:", e)
+
+    async def _next_frames(self, n=2):
+        for _ in range(max(1, int(n))):
+            await self._app.next_update_async()
+
+    # -------------------------------
+    # HARD SCENE REMOVE (FIX)
+    # -------------------------------
+    async def remove_scene_clean_async(self, scene_name: str) -> str:
+        stage = get_current_stage()
+        app = omni.kit.app.get_app()
+        timeline = omni.timeline.get_timeline_interface()
+
+        scene_path = f"/World/Chat/Scene_{scene_name}"
+        root = stage.GetPrimAtPath(scene_path)
+
+        if not root or not root.IsValid():
+            return f"No scene '{scene_name}' found."
+
+        # 1️⃣ Stop simulation (pause is NOT enough for heavy PhysX scenes)
+        try:
+            timeline.stop()
+        except Exception:
+            pass
+
+        # 2️⃣ Let PhysX + USD settle
+        await app.next_update_async()
+        await app.next_update_async()
+
+        # 3️⃣ Delete via Kit command (stronger than RemovePrim)
+        try:
+            omni.kit.commands.execute(
+                "DeletePrims",
+                paths=[scene_path]
+            )
+        except Exception:
+            stage.RemovePrim(scene_path)
+
+        # 4️⃣ Flush updates
+        await app.next_update_async()
+        await app.next_update_async()
+
+        return f"Scene '{scene_name}' removed cleanly."
+
+
+    def _collect_subtree_paths(self, root_prim):
+        # children first (deepest-first) so physics objects detach cleanly
+        paths = []
+        for p in Usd.PrimRange(root_prim):
+            paths.append(p.GetPath().pathString)
+        paths.sort(key=lambda s: s.count("/"), reverse=True)
+        return paths
+    
+    def _break_composition(self, prim):
+        # Unload payloads (important for heavy scenes)
+        try:
+            if prim.HasPayload():
+                prim.Unload()
+        except Exception:
+            pass
+
+        # Clear explicit references/payloads (helps detach composed content)
+        try:
+            prim.GetReferences().ClearReferences()
+        except Exception:
+            pass
+
+        try:
+            prim.GetPayloads().ClearPayloads()
+        except Exception:
+            pass
+
+    def _disable_physics_apis(self, prim):
+        # Disable rigid bodies
+        try:
+            if prim.HasAPI(UsdPhysics.RigidBodyAPI):
+                rb = UsdPhysics.RigidBodyAPI(prim)
+                if rb:
+                    en = rb.GetRigidBodyEnabledAttr()
+                    if en:
+                        en.Set(False)
+        except Exception:
+            pass
+
+        # Disable collisions
+        try:
+            if prim.HasAPI(UsdPhysics.CollisionAPI):
+                col = UsdPhysics.CollisionAPI(prim)
+                if col:
+                    en = col.GetCollisionEnabledAttr()
+                    if en:
+                        en.Set(False)
+        except Exception:
+            pass
+
+        # PhysX-specific (if present)
+        try:
+            if prim.HasAPI(PhysxSchema.PhysxRigidBodyAPI):
+                prb = PhysxSchema.PhysxRigidBodyAPI(prim)
+                # some versions expose enabled attr differently; best-effort
+                attr = prim.GetAttribute("physxRigidBody:enabled")
+                if attr:
+                    attr.Set(False)
+        except Exception:
+            pass
+
 
     async def build_nucleus_index_async(self):
         if self._nucleus_index is not None:
@@ -341,7 +469,10 @@ class Spawner:
     # RESET (FIXED)
     # --------------------------------------------------
     def reset_environment(self):
-        asyncio.ensure_future(self._reset_environment_async())
+        # asyncio.ensure_future(self._reset_environment_async())
+        
+        async_engine.run_coroutine(self._reset_environment_async())
+
         return "Environment reset scheduled."
 
     async def _reset_environment_async(self):
@@ -353,7 +484,15 @@ class Spawner:
         await app.next_update_async()
 
         # Remove Chat content
-        if stage and stage.GetPrimAtPath("/World/Chat"):
+        # if stage and stage.GetPrimAtPath("/World/Chat"):
+        #     stage.RemovePrim("/World/Chat")
+
+        # 🔥 Remove ALL children explicitly
+        chat_root = stage.GetPrimAtPath("/World/Chat")
+        if chat_root:
+            for child in list(chat_root.GetChildren()):
+                stage.RemovePrim(child.GetPath())
+
             stage.RemovePrim("/World/Chat")
 
         await app.next_update_async()
@@ -529,25 +668,43 @@ class Spawner:
 
     #     return result
 
+    def resolve_scene_name(self, user_text: str) -> str | None:
+        text = user_text.lower()
+
+        # Exact ID match first
+        if text in self.SCENE_LIBRARY:
+            return text
+
+        # Alias match
+        for scene_id, aliases in self.SCENE_ALIASES.items():
+            for phrase in aliases:
+                if phrase in text:
+                    return scene_id
+
+        # Fallback partial match
+        for scene_id in self.SCENE_LIBRARY:
+            if scene_id.replace("_", " ") in text:
+                return scene_id
+
+        return None
+
+
     def spawn_scene(self, name: str):
         self._ensure_chat_root()
         stage = get_current_stage()
-        name_norm = (name or "").lower().strip()
 
-        # Prefer longest / most specific scene names
-        for scene_id in sorted(self.SCENE_LIBRARY.keys(), key=len, reverse=True):
-            scene_id_norm = scene_id.lower().strip()
+        resolved = self.resolve_scene_name(name)
+        if not resolved:
+            return f"Unknown scene: {name}"
 
-            if (scene_id_norm in name_norm) or (scene_id_norm.replace("_", " ") in name_norm):
-                prim = f"/World/Chat/Scene_{scene_id_norm}"
-                if stage.GetPrimAtPath(prim):
-                    return f"{scene_id_norm} scene already loaded."
+        prim = f"/World/Chat/Scene_{resolved}"
+        if stage.GetPrimAtPath(prim):
+            return f"{resolved} scene already loaded."
 
-                add_reference_to_stage(self.SCENE_LIBRARY[scene_id_norm], prim)
-                self._spawned_prims.add(prim)
-                return f"{scene_id_norm} scene loaded."
+        add_reference_to_stage(self.SCENE_LIBRARY[resolved], prim)
+        self._spawned_prims.add(prim)
+        return f"{resolved} scene loaded."
 
-        return f"Unknown scene: {name}"
 
 
 
@@ -680,4 +837,60 @@ class Spawner:
         self._spawned_prims.discard(prim_path)
 
         return f"Removed '{Path(prim_path).name}'."
+    
+
+    # async def remove_scene_clean_async(self, scene_name: str) -> str:
+    #     stage = get_current_stage()
+    #     app = omni.kit.app.get_app()
+
+    #     scene_path = f"/World/Chat/Scene_{scene_name}"
+    #     root = stage.GetPrimAtPath(scene_path)
+    #     if not root or not root.IsValid():
+    #         return f"No scene '{scene_name}' found at {scene_path}"
+
+    #     # 1) STOP physics/timeline before touching physics prims
+    #     tl = omni.timeline.get_timeline_interface()
+    #     try:
+    #         tl.stop()
+    #     except Exception:
+    #         pass
+
+    #     # Let stop propagate
+    #     await app.next_update_async()
+
+    #     # 2) Disable physics + unload payloads + break composition (deepest-first)
+    #     paths = self._collect_subtree_paths(root)
+    #     for p in paths:
+    #         prim = stage.GetPrimAtPath(p)
+    #         if prim and prim.IsValid():
+    #             self._disable_physics_apis(prim)
+    #             self._break_composition(prim)
+
+    #     # Let schema changes propagate
+    #     await app.next_update_async()
+
+    #     # 3) Delete the root prim via Kit command (more reliable than stage.RemovePrim)
+    #     try:
+    #         omni.kit.commands.execute("DeletePrims", paths=[scene_path])
+    #     except Exception:
+    #         # Fallback
+    #         stage.RemovePrim(scene_path)
+
+    #     # 4) Flush updates twice (USD + PhysX)
+    #     await app.next_update_async()
+    #     await app.next_update_async()
+
+    #     # 5) Best-effort PhysX refresh (version-dependent, so guard it)
+    #     try:
+    #         physx = _physx.get_physx_interface()
+    #         # Some builds expose one of these; harmless if missing
+    #         for fn in ("force_load_physics_from_usd", "reset_simulation", "reset_physics", "rebuild_collisions"):
+    #             if hasattr(physx, fn):
+    #                 getattr(physx, fn)()
+    #                 break
+    #     except Exception:
+    #         pass
+
+    #     return f"Scene '{scene_name}' removed cleanly."
+
 

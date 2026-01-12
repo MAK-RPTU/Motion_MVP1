@@ -120,10 +120,22 @@ class LLMClient:
             IMPORTANT:
             - NEVER spawn a robot unless the user explicitly mentions a robot.
             - Loading a scene does NOT imply spawning a robot.
+            - Correct minor spelling mistakes in user input before mapping actions.
+            - Treat small typos as intended words (e.g., "fbread" → "bread").
 
             Examples:
 
             User: Add a warehouse with bread crates
+            [
+            {"action": "load_scene", "scene": "warehouse_breadcrates"}
+            ]
+
+            User: Add a warehouse with bread
+            [
+            {"action": "load_scene", "scene": "warehouse_breadcrates"}
+            ]
+
+            User: Add a bread factory
             [
             {"action": "load_scene", "scene": "warehouse_breadcrates"}
             ]
@@ -259,6 +271,14 @@ class LLMClient:
 
 
     def interpret(self, prompt):
+
+        if not prompt or not isinstance(prompt, str):
+            return []
+
+        p = prompt.strip().lower()
+        if p in {"ping", "pong", "health", "ok"}:
+            return []
+        
         raw = self._call_api(prompt)         # however you call Gemini
         result = self._extract_json(raw)     # extract clean JSON
         return result
